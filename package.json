@@ -1,0 +1,62 @@
+{
+  "name": "multiupload",
+  "version": "1.0.0",
+  "description": "Multi-uploader vers plusieurs hebergeurs de fichiers",
+  "main": "electron-main.js",
+  "bin": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "dev:desktop": "electron .",
+    "build:exe": "electron-builder --win portable",
+    "build:cli-exe": "pkg . --targets node18-win-x64 --output dist/multiuploader.exe"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.8.4",
+    "express": "^4.21.2",
+    "form-data": "^4.0.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "electron": "^36.0.0",
+    "electron-builder": "^26.0.12",
+    "pkg": "^5.8.1"
+  },
+  "build": {
+    "appId": "com.multiupload.desktop",
+    "productName": "MultiUploader",
+    "artifactName": "MultiUploader.exe",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "electron-main.js",
+      "src/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "scripts": [
+      "src/**/*.js",
+      "node_modules/axios/**/*.js",
+      "node_modules/axios/**/*.cjs"
+    ]
+  }
+}

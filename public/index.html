@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MultiUploader</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-glow"></div>
+    <main class="shell">
+      <section class="hero">
+        <p class="kicker">Upload multiple services</p>
+        <h1>MultiUploader</h1>
+        <p class="subtitle">
+          Uploade un fichier vers Gofile, 1fichier, Rootz, Send.now, Buzzheavier
+          et Ranoz en un clic.
+        </p>
+      </section>
+
+      <section class="panel">
+        <form id="upload-form">
+          <label class="field">
+            <span>Fichier</span>
+            <input id="file-input" name="file" type="file" required />
+          </label>
+
+          <div class="field">
+            <span>Cibles</span>
+            <div class="targets">
+              <label><input type="checkbox" value="gofile" checked /> gofile.io</label>
+              <label><input type="checkbox" value="1fichier" checked /> 1fichier.com</label>
+              <label><input type="checkbox" value="rootz" checked /> rootz.so</label>
+              <label><input type="checkbox" value="sendnow" checked /> send.now</label>
+              <label><input type="checkbox" value="buzzheavier" checked /> buzzheavier.com</label>
+              <label><input type="checkbox" value="ranoz" checked /> ranoz.gg</label>
+            </div>
+          </div>
+
+          <details class="advanced">
+            <summary>Options avancees (facultatif)</summary>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>Gofile token</span>
+                <input id="opt-gofile-token" type="text" placeholder="Bearer token" />
+              </label>
+
+              <label class="field">
+                <span>1fichier API key</span>
+                <input id="opt-1fichier-apikey" type="text" placeholder="API key" />
+              </label>
+
+              <label class="field">
+                <span>Rootz folderId</span>
+                <input id="opt-rootz-folder" type="text" placeholder="folderId" />
+              </label>
+
+              <label class="field">
+                <span>Buzzheavier locationId</span>
+                <input id="opt-buzz-location" type="text" value="3eb9t1559lkv" />
+              </label>
+
+              <label class="field">
+                <span>Send.now destinataire</span>
+                <input id="opt-sendnow-email" type="email" placeholder="email@domaine.com" />
+              </label>
+            </div>
+          </details>
+
+          <button id="submit-btn" type="submit">Lancer le multi-upload</button>
+        </form>
+      </section>
+
+      <section class="panel results">
+        <div class="results-head">
+          <h2>Resultats</h2>
+          <div class="results-actions">
+            <button id="copy-all-btn" type="button" disabled>Copier tous les liens</button>
+            <p id="status-line">Pret.</p>
+          </div>
+        </div>
+        <div id="results-list" class="results-list">
+          <p class="empty">Aucun upload lance.</p>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("upload-form");
+      const fileInput = document.getElementById("file-input");
+      const submitBtn = document.getElementById("submit-btn");
+      const copyAllBtn = document.getElementById("copy-all-btn");
+      const statusLine = document.getElementById("status-line");
+      const resultsList = document.getElementById("results-list");
+      let lastLinks = [];
+
+      function selectedTargets() {
+        return [...document.querySelectorAll(".targets input:checked")].map((el) => el.value);
+      }
+
+      function buildOptions() {
+        const options = {
+          gofile: {},
+          "1fichier": {},
+          rootz: {},
+          buzzheavier: {},
+          sendnow: {}
+        };
+
+        const gofileToken = document.getElementById("opt-gofile-token").value.trim();
+        const onefichierApiKey = document.getElementById("opt-1fichier-apikey").value.trim();
+        const rootzFolder = document.getElementById("opt-rootz-folder").value.trim();
+        const buzzLocation = document.getElementById("opt-buzz-location").value.trim();
+        const sendnowEmail = document.getElementById("opt-sendnow-email").value.trim();
+
+        if (gofileToken) {
+          options.gofile.token = gofileToken;
+        }
+        if (onefichierApiKey) {
+          options["1fichier"].apiKey = onefichierApiKey;
+        }
+        if (rootzFolder) {
+          options.rootz.folderId = rootzFolder;
+        }
+        if (buzzLocation) {
+          options.buzzheavier.locationId = buzzLocation;
+        }
+        if (sendnowEmail) {
+          options.sendnow.link_rcpt = sendnowEmail;
+        }
+
+        return options;
+      }
+
+      function renderResults(payload) {
+        const entries = Object.entries(payload.results || {});
+        lastLinks = entries
+          .map(([, result]) => (result && result.ok ? result.url : null))
+          .filter((url) => typeof url === "string" && url.length > 0);
+        copyAllBtn.disabled = lastLinks.length === 0;
+
+        if (!entries.length) {
+          resultsList.innerHTML = '<p class="empty">Aucun resultat.</p>';
+          return;
+        }
+
+        const html = entries
+          .map(([requestedTarget, result]) => {
+            if (result.ok) {
+              const url = result.url
+                ? `<a href="${result.url}" target="_blank" rel="noopener noreferrer">${result.url}</a>`
+                : "<span>Aucun lien retourne</span>";
+              return `
+                <article class="result ok">
+                  <div class="result-top">
+                    <strong>${requestedTarget}</strong>
+                    <span>OK</span>
+                  </div>
+                  <div class="result-body">${url}</div>
+                </article>
+              `;
+            }
+            const details = result.details
+              ? `<pre>${JSON.stringify(result.details, null, 2)}</pre>`
+              : "";
+            return `
+              <article class="result ko">
+                <div class="result-top">
+                  <strong>${requestedTarget}</strong>
+                  <span>ERREUR</span>
+                </div>
+                <div class="result-body">
+                  <p>${result.error || "Erreur inconnue"}</p>
+                  ${details}
+                </div>
+              </article>
+            `;
+          })
+          .join("");
+
+        resultsList.innerHTML = html;
+      }
+
+      copyAllBtn.addEventListener("click", async () => {
+        if (!lastLinks.length) {
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(lastLinks.join("\n"));
+          statusLine.textContent = `${lastLinks.length} lien(s) copie(s).`;
+        } catch (error) {
+          statusLine.textContent = "Impossible de copier automatiquement.";
+        }
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const file = fileInput.files[0];
+        const targets = selectedTargets();
+
+        if (!file) {
+          statusLine.textContent = "Selectionne un fichier.";
+          return;
+        }
+        if (!targets.length) {
+          statusLine.textContent = "Selectionne au moins une cible.";
+          return;
+        }
+
+        const options = buildOptions();
+        const body = new FormData();
+        body.append("file", file);
+        body.append("targets", JSON.stringify(targets));
+        body.append("options", JSON.stringify(options));
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Upload en cours...";
+        statusLine.textContent = `Upload de ${file.name} vers ${targets.length} cible(s)...`;
+        resultsList.innerHTML = '<p class="empty">Traitement...</p>';
+
+        try {
+          const response = await fetch("/api/upload", {
+            method: "POST",
+            body
+          });
+          const payload = await response.json();
+
+          if (!response.ok) {
+            throw new Error(payload.error || "Echec de la requete upload");
+          }
+
+          renderResults(payload);
+          statusLine.textContent = "Termine.";
+        } catch (error) {
+          resultsList.innerHTML = `<p class="empty">Erreur: ${error.message}</p>`;
+          statusLine.textContent = "Echec.";
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Lancer le multi-upload";
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+node_modules/
+.tmp_uploads/
+npm-debug.log*
+.pkg-cache/
+dist/
+dist-electron/
+*.log
