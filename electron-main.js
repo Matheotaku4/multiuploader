@@ -9,6 +9,7 @@ async function createMainWindow() {
   serverHandle = await startServer({
     host: "127.0.0.1",
     port: 0,
+    preferencesDir: app.getPath("userData"),
     silent: true
   });
 

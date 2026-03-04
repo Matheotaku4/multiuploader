@@ -19,6 +19,58 @@ async function ensureTmpDir() {
   await fs.mkdir(TMP_DIR, { recursive: true });
 }
 
+function sanitizePreferencePayload(value) {
+  const source = value && typeof value === "object" ? value : {};
+
+  let targets = [];
+  if (Array.isArray(source.targets)) {
+    targets = source.targets
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  }
+
+  const fields = {};
+  if (source.fields && typeof source.fields === "object" && !Array.isArray(source.fields)) {
+    for (const [key, rawValue] of Object.entries(source.fields)) {
+      const fieldKey = String(key || "").trim();
+      if (!fieldKey) {
+        continue;
+      }
+      const valueAsString = rawValue == null ? "" : String(rawValue);
+      fields[fieldKey] = valueAsString;
+    }
+  }
+
+  return {
+    targets,
+    fields,
+    advancedOpen: Boolean(source.advancedOpen)
+  };
+}
+
+async function readPreferencesFromDisk(preferencesDir) {
+  const preferencesFile = path.join(preferencesDir, "preferences.json");
+
+  try {
+    const raw = await fs.readFile(preferencesFile, "utf8");
+    const parsed = JSON.parse(raw);
+    return sanitizePreferencePayload(parsed);
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return null;
+    }
+    return null;
+  }
+}
+
+async function writePreferencesToDisk(preferencesDir, payload) {
+  const preferencesFile = path.join(preferencesDir, "preferences.json");
+  const sanitized = sanitizePreferencePayload(payload);
+  await fs.mkdir(preferencesDir, { recursive: true });
+  await fs.writeFile(preferencesFile, JSON.stringify(sanitized, null, 2), "utf8");
+  return sanitized;
+}
+
 function parseJsonField(value, fallback = {}) {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -79,7 +131,20 @@ function writeNdjsonLine(res, payload) {
   res.write(`${JSON.stringify(payload)}\n`);
 }
 
-function createApp() {
+function resolvePreferencesDir(options = {}) {
+  if (options.preferencesDir && String(options.preferencesDir).trim()) {
+    return String(options.preferencesDir).trim();
+  }
+  const envDir = process.env.MULTIUPLOADER_DATA_DIR;
+  if (envDir && String(envDir).trim()) {
+    return String(envDir).trim();
+  }
+  return path.join(os.homedir(), ".multiuploader");
+}
+
+function createApp(options = {}) {
+  const preferencesDir = resolvePreferencesDir(options);
+
   const app = express();
   const upload = multer({ dest: TMP_DIR });
 
@@ -89,6 +154,16 @@ function createApp() {
 
   app.get("/api/targets", (_req, res) => {
     res.json({ targets: supportedTargets });
+  });
+
+  app.get("/api/preferences", async (_req, res) => {
+    const preferences = await readPreferencesFromDisk(preferencesDir);
+    res.json({ preferences });
+  });
+
+  app.post("/api/preferences", async (req, res) => {
+    const preferences = await writePreferencesToDisk(preferencesDir, req.body);
+    res.json({ ok: true, preferences });
   });
 
   app.post("/api/upload", upload.single("file"), async (req, res) => {
@@ -265,7 +340,9 @@ async function startServer(options = {}) {
 
   await ensureTmpDir();
 
-  const app = createApp();
+  const app = createApp({
+    preferencesDir: options.preferencesDir || null
+  });
 
   return new Promise((resolve, reject) => {
     const server = app.listen(port, host, () => {

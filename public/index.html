@@ -132,34 +132,14 @@
         "opt-filemirage-token",
         "opt-pixeldrain-key"
       ];
-      const PREFS_STORAGE_KEY = "multiuploader.preferences.v1";
       let lastLinks = [];
       const progressState = new Map();
       let progressTicker = null;
+      let preferencesReady = false;
+      let preferenceSaveTimer = null;
 
       function selectedTargets() {
         return targetInputs.filter((el) => el.checked).map((el) => el.value);
-      }
-
-      function readPreferences() {
-        try {
-          const raw = localStorage.getItem(PREFS_STORAGE_KEY);
-          if (!raw) {
-            return null;
-          }
-          const parsed = JSON.parse(raw);
-          return parsed && typeof parsed === "object" ? parsed : null;
-        } catch (_err) {
-          return null;
-        }
-      }
-
-      function writePreferences(payload) {
-        try {
-          localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(payload));
-        } catch (_err) {
-          // Ignore write errors (private mode / disabled storage).
-        }
       }
 
       function collectPreferences() {
@@ -177,6 +157,33 @@
           fields,
           advancedOpen: Boolean(advancedDetails?.open)
         };
+      }
+
+      async function readPreferencesFromServer() {
+        const response = await fetch("/api/preferences", {
+          method: "GET",
+          cache: "no-store"
+        });
+        if (!response.ok) {
+          return null;
+        }
+        const payload = await response.json();
+        if (!payload || typeof payload !== "object") {
+          return null;
+        }
+        const prefs = payload.preferences;
+        return prefs && typeof prefs === "object" ? prefs : null;
+      }
+
+      async function writePreferencesToServer(payload) {
+        const response = await fetch("/api/preferences", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          throw new Error("Preferences save failed");
+        }
       }
 
       function applyPreferences(payload) {
@@ -211,7 +218,26 @@
       }
 
       function persistPreferences() {
-        writePreferences(collectPreferences());
+        if (!preferencesReady) {
+          return;
+        }
+        if (preferenceSaveTimer) {
+          clearTimeout(preferenceSaveTimer);
+        }
+        preferenceSaveTimer = setTimeout(() => {
+          writePreferencesToServer(collectPreferences()).catch(() => {});
+        }, 180);
+      }
+
+      async function initializePreferences() {
+        try {
+          const serverPreferences = await readPreferencesFromServer();
+          applyPreferences(serverPreferences);
+        } catch (_err) {
+          // Keep default UI state if preferences cannot be loaded.
+        } finally {
+          preferencesReady = true;
+        }
       }
 
       function buildOptions() {
@@ -475,7 +501,7 @@
         }
       });
 
-      applyPreferences(readPreferences());
+      initializePreferences();
       for (const input of targetInputs) {
         input.addEventListener("change", persistPreferences);
       }
