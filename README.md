@@ -1,5 +1,8 @@
 # MultiUploader
 
+> [!WARNING]  
+> This app is vibe coded,   
+
 Local web app to upload one file to multiple hosts in parallel:
 
 - `gofile.io`
