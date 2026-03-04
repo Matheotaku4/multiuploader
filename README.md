@@ -12,6 +12,13 @@
 
 Local web app to upload one file to multiple hosts in parallel:
 
+[![Release](https://img.shields.io/github/v/release/Matheotaku4/Upify?style=for-the-badge&color=blue&logo=github)](https://github.com/Matheotaku4/Upify/releases)
+[![Node](https://img.shields.io/badge/Node.js-%3E%3D_18-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Electron](https://img.shields.io/badge/Electron-47848F?style=for-the-badge&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](#)
+[![Stars](https://img.shields.io/github/stars/Matheotaku4/Upify?style=for-the-badge&color=gold)](https://github.com/Matheotaku4/Upify/stargazers)
+
+
 - `gofile.io`
 - `1fichier.com`
 - `rootz.so`
