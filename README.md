@@ -11,6 +11,9 @@ Local web app to upload one file to multiple hosts in parallel:
 - `send.now`
 - `buzzheavier.com`
 - `ranoz.gg`
+- `vikingfile.com`
+- `filemirage.com`
+- `pixeldrain.com`
 
 ## Requirements
 
@@ -67,7 +70,10 @@ Example `options`:
   "1fichier": { "apiKey": "..." },
   "rootz": { "folderId": "..." },
   "buzzheavier": { "locationId": "3eb9t1559lkv" },
-  "sendnow": { "link_rcpt": "mail@example.com" }
+  "sendnow": { "link_rcpt": "mail@example.com" },
+  "vikingfile": { "user": "" },
+  "filemirage": { "apiToken": "..." },
+  "pixeldrain": { "apiKey": "..." }
 }
 ```
 
@@ -75,5 +81,6 @@ Example `options`:
 
 - For `send.now`, the service returns a `file_code`. The app returns the `upload_result` URL.
 - For `rootz.so`, multipart upload is used automatically from 4 MB (configurable with `multipartThreshold`).
+- For `pixeldrain.com`, API upload requires an API key (`/user/api_keys`).
 - The UI shows per-host progress bars while uploads are running.
 - The streaming endpoint `POST /api/upload/stream` emits NDJSON events (`start`, `target_start`, `target_result`, `done`).

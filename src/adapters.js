@@ -19,7 +19,10 @@ const supportedTargets = [
   "rootz",
   "sendnow",
   "buzzheavier",
-  "ranoz"
+  "ranoz",
+  "vikingfile",
+  "filemirage",
+  "pixeldrain"
 ];
 
 const targetAliases = {
@@ -35,7 +38,13 @@ const targetAliases = {
   buzzheavier: "buzzheavier",
   "buzzheavier.com": "buzzheavier",
   ranoz: "ranoz",
-  "ranoz.gg": "ranoz"
+  "ranoz.gg": "ranoz",
+  vikingfile: "vikingfile",
+  "vikingfile.com": "vikingfile",
+  filemirage: "filemirage",
+  "filemirage.com": "filemirage",
+  pixeldrain: "pixeldrain",
+  "pixeldrain.com": "pixeldrain"
 };
 
 class UploadError extends Error {
@@ -749,6 +758,173 @@ async function uploadToRanoz(file) {
   throw makeErrorFromResponse("Ranoz: content upload failed", putResp);
 }
 
+async function uploadToVikingfile(file, options = {}) {
+  const serverResp = await http.get("https://vikingfile.com/api/get-server");
+  const serverBody = parseJsonLoose(serverResp.data);
+  const server = String(serverBody?.server || "").trim();
+
+  if (serverResp.status < 200 || serverResp.status >= 300 || !server) {
+    throw makeErrorFromResponse("Vikingfile: unable to get upload server", serverResp, serverBody);
+  }
+
+  const form = new FormData();
+  form.append("file", fs.createReadStream(file.path), {
+    filename: file.originalname,
+    contentType: file.mimetype || "application/octet-stream"
+  });
+  form.append("user", options.user == null ? "" : String(options.user));
+  if (options.path) {
+    form.append("path", String(options.path));
+  }
+  if (options.pathPublicShare) {
+    form.append("pathPublicShare", String(options.pathPublicShare));
+  }
+
+  const uploadResp = await http.post(server, form, {
+    headers: form.getHeaders(),
+    timeout: Math.max(HTTP_TIMEOUT_MS, 300_000)
+  });
+  const uploadBody = parseJsonLoose(uploadResp.data);
+  const url = uploadBody?.url || null;
+
+  if (uploadResp.status >= 200 && uploadResp.status < 300 && url) {
+    return {
+      url,
+      raw: uploadBody
+    };
+  }
+
+  throw makeErrorFromResponse("Vikingfile: upload failed", uploadResp, uploadBody);
+}
+
+async function uploadToFilemirage(file, options = {}) {
+  const apiToken = String(options.apiToken || "").trim();
+  const baseHeaders = apiToken ? { Authorization: `Bearer ${apiToken}` } : {};
+
+  const serverResp = await http.get("https://filemirage.com/api/servers", {
+    headers: baseHeaders
+  });
+  const serverBody = parseJsonLoose(serverResp.data);
+  const server = String(serverBody?.data?.server || "").trim().replace(/\/+$/, "");
+  const uploadId = String(serverBody?.data?.upload_id || "").trim();
+
+  if (
+    serverResp.status < 200 ||
+    serverResp.status >= 300 ||
+    serverBody?.success === false ||
+    !server ||
+    !uploadId
+  ) {
+    throw makeErrorFromResponse("FileMirage: unable to initialize upload", serverResp, serverBody);
+  }
+
+  const form = new FormData();
+  form.append("file", fs.createReadStream(file.path), {
+    filename: file.originalname,
+    contentType: file.mimetype || "application/octet-stream"
+  });
+  form.append("filename", file.originalname);
+  form.append("upload_id", uploadId);
+  form.append("chunk_number", "0");
+  form.append("total_chunks", "1");
+
+  const uploadHeaders = {
+    ...form.getHeaders(),
+    ...baseHeaders
+  };
+
+  const uploadResp = await http.post(`${server}/upload.php`, form, {
+    headers: uploadHeaders,
+    timeout: Math.max(HTTP_TIMEOUT_MS, 300_000)
+  });
+  const uploadBody = parseJsonLoose(uploadResp.data);
+  const url = uploadBody?.data?.url || uploadBody?.url || null;
+
+  if (
+    uploadResp.status >= 200 &&
+    uploadResp.status < 300 &&
+    uploadBody?.success !== false &&
+    url
+  ) {
+    return {
+      url,
+      raw: uploadBody
+    };
+  }
+
+  throw makeErrorFromResponse("FileMirage: upload failed", uploadResp, uploadBody);
+}
+
+async function uploadToPixeldrain(file, options = {}) {
+  const apiKey = String(options.apiKey || "").trim();
+  if (!apiKey) {
+    throw new UploadError(
+      "Pixeldrain: apiKey is required (create one at https://pixeldrain.com/user/api_keys)"
+    );
+  }
+
+  const auth = {
+    username: "",
+    password: apiKey
+  };
+
+  const tryPut = async () => {
+    const response = await http.put(
+      `https://pixeldrain.com/api/file/${encodeURIComponent(file.originalname)}`,
+      fs.createReadStream(file.path),
+      {
+        auth,
+        headers: {
+          "Content-Type": file.mimetype || "application/octet-stream",
+          "Content-Length": String(file.size)
+        },
+        timeout: Math.max(HTTP_TIMEOUT_MS, 600_000)
+      }
+    );
+    const body = parseJsonLoose(response.data);
+    const id = body?.id || null;
+    if (response.status >= 200 && response.status < 300 && body?.success !== false && id) {
+      return { url: `https://pixeldrain.com/u/${id}`, raw: body };
+    }
+    return { response, body, ok: false };
+  };
+
+  const tryPost = async () => {
+    const form = new FormData();
+    form.append("file", fs.createReadStream(file.path), {
+      filename: file.originalname,
+      contentType: file.mimetype || "application/octet-stream"
+    });
+    const response = await http.post("https://pixeldrain.com/api/file", form, {
+      auth,
+      headers: form.getHeaders(),
+      timeout: Math.max(HTTP_TIMEOUT_MS, 600_000)
+    });
+    const body = parseJsonLoose(response.data);
+    const id = body?.id || null;
+    if (response.status >= 200 && response.status < 300 && body?.success !== false && id) {
+      return { url: `https://pixeldrain.com/u/${id}`, raw: body };
+    }
+    return { response, body, ok: false };
+  };
+
+  const putResult = await tryPut();
+  if (putResult?.url) {
+    return putResult;
+  }
+
+  const postResult = await tryPost();
+  if (postResult?.url) {
+    return postResult;
+  }
+
+  throw makeErrorFromResponse(
+    "Pixeldrain: upload failed",
+    postResult.response || putResult.response,
+    postResult.body || putResult.body
+  );
+}
+
 async function uploadToTarget(target, file, options = {}) {
   const normalized = normalizeTarget(target);
   if (!normalized) {
@@ -768,6 +944,12 @@ async function uploadToTarget(target, file, options = {}) {
       return uploadToBuzzheavier(file, options);
     case "ranoz":
       return uploadToRanoz(file, options);
+    case "vikingfile":
+      return uploadToVikingfile(file, options);
+    case "filemirage":
+      return uploadToFilemirage(file, options);
+    case "pixeldrain":
+      return uploadToPixeldrain(file, options);
     default:
       throw new UploadError(`Unsupported target: ${target}`);
   }

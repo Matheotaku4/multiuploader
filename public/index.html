@@ -20,7 +20,7 @@
         <h1>MultiUploader</h1>
         <p class="subtitle">
           Upload one file to Gofile, 1fichier, Rootz, Send.now, Buzzheavier,
-          and Ranoz in one click.
+          Ranoz, Vikingfile, FileMirage, and Pixeldrain in one click.
         </p>
       </section>
 
@@ -40,6 +40,9 @@
               <label><input type="checkbox" value="sendnow" checked /> send.now</label>
               <label><input type="checkbox" value="buzzheavier" checked /> buzzheavier.com</label>
               <label><input type="checkbox" value="ranoz" checked /> ranoz.gg</label>
+              <label><input type="checkbox" value="vikingfile" checked /> vikingfile.com</label>
+              <label><input type="checkbox" value="filemirage" checked /> filemirage.com</label>
+              <label><input type="checkbox" value="pixeldrain" checked /> pixeldrain.com</label>
             </div>
           </div>
 
@@ -70,6 +73,21 @@
               <label class="field">
                 <span>Send.now recipient</span>
                 <input id="opt-sendnow-email" type="email" placeholder="email@domain.com" />
+              </label>
+
+              <label class="field">
+                <span>Vikingfile user (optional)</span>
+                <input id="opt-viking-user" type="text" placeholder="Leave empty for anonymous" />
+              </label>
+
+              <label class="field">
+                <span>FileMirage API token (optional)</span>
+                <input id="opt-filemirage-token" type="text" placeholder="Bearer token" />
+              </label>
+
+              <label class="field">
+                <span>Pixeldrain API key (required)</span>
+                <input id="opt-pixeldrain-key" type="text" placeholder="API key" />
               </label>
             </div>
           </details>
@@ -116,7 +134,10 @@
           "1fichier": {},
           rootz: {},
           buzzheavier: {},
-          sendnow: {}
+          sendnow: {},
+          vikingfile: {},
+          filemirage: {},
+          pixeldrain: {}
         };
 
         const gofileToken = document.getElementById("opt-gofile-token").value.trim();
@@ -124,6 +145,9 @@
         const rootzFolder = document.getElementById("opt-rootz-folder").value.trim();
         const buzzLocation = document.getElementById("opt-buzz-location").value.trim();
         const sendnowEmail = document.getElementById("opt-sendnow-email").value.trim();
+        const vikingUser = document.getElementById("opt-viking-user").value.trim();
+        const filemirageToken = document.getElementById("opt-filemirage-token").value.trim();
+        const pixeldrainKey = document.getElementById("opt-pixeldrain-key").value.trim();
 
         if (gofileToken) {
           options.gofile.token = gofileToken;
@@ -139,6 +163,15 @@
         }
         if (sendnowEmail) {
           options.sendnow.link_rcpt = sendnowEmail;
+        }
+        if (vikingUser) {
+          options.vikingfile.user = vikingUser;
+        }
+        if (filemirageToken) {
+          options.filemirage.apiToken = filemirageToken;
+        }
+        if (pixeldrainKey) {
+          options.pixeldrain.apiKey = pixeldrainKey;
         }
 
         return options;
