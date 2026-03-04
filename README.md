@@ -1,4 +1,4 @@
-# MultiUploader
+# Upify
 
 > [!WARNING]  
 > This app is vibe coded  
@@ -24,7 +24,7 @@ Local web app to upload one file to multiple hosts in parallel:
 
 Clone the repository 
 ```bash
-git clone https://github.com/Matheotaku4/multiuploader.git
+git clone https://github.com/Matheotaku4/upify.git
 ```
 Next,
 ```bash
