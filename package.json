@@ -1,6 +1,6 @@
 {
   "name": "upify",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Upify multi-host uploader",
   "main": "electron-main.js",
   "bin": "src/server.js",
@@ -36,9 +36,12 @@
       "electron-main.js",
       "src/**/*",
       "public/**/*",
+      "API.md",
+      "logo.png",
       "package.json"
     ],
     "win": {
+      "icon": "icon.ico",
       "target": [
         {
           "target": "portable",
@@ -58,6 +61,8 @@
       "artifactName": "${productName}-${version}-portable.${ext}"
     },
     "nsis": {
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
       "artifactName": "${productName}-${version}-setup.${ext}"
     }
   },

@@ -13,6 +13,13 @@ const http = axios.create({
   validateStatus: () => true
 });
 
+function mergeSignal(config, signal) {
+  if (!signal) {
+    return config || {};
+  }
+  return { ...(config || {}), signal };
+}
+
 const supportedTargets = [
   "gofile",
   "1fichier",
@@ -245,7 +252,7 @@ function collectSendNowFields(formHtml) {
   return fields;
 }
 
-async function ensureGofileFolderPublic(token, folderId) {
+async function ensureGofileFolderPublic(token, folderId, signal = null) {
   if (!token || !folderId) {
     return;
   }
@@ -256,12 +263,12 @@ async function ensureGofileFolderPublic(token, folderId) {
       attribute: "public",
       attributeValue: true
     },
-    {
+    mergeSignal({
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json"
       }
-    }
+    }, signal)
   );
   const body = parseJsonLoose(response.data);
 
@@ -273,11 +280,13 @@ async function ensureGofileFolderPublic(token, folderId) {
 async function uploadToGofile(file, options = {}) {
   let token = options.token || null;
   let accountRootFolder = null;
+  const signal = options.signal || null;
 
   if (!token) {
     const createResp = await http.post(
       "https://api.gofile.io/accounts",
-      {}
+      {},
+      mergeSignal({}, signal)
     );
     const createBody = parseJsonLoose(createResp.data);
     if (createResp.status < 200 || createResp.status >= 300 || createBody?.status !== "ok") {
@@ -292,9 +301,9 @@ async function uploadToGofile(file, options = {}) {
 
   let folderId = options.folderId || accountRootFolder || null;
   if (!folderId) {
-    const accountResp = await http.get("https://api.gofile.io/accounts/website", {
+    const accountResp = await http.get("https://api.gofile.io/accounts/website", mergeSignal({
       headers: { Authorization: `Bearer ${token}` }
-    });
+    }, signal));
     const accountBody = parseJsonLoose(accountResp.data);
     if (accountResp.status < 200 || accountResp.status >= 300 || accountBody?.status !== "ok") {
       throw makeErrorFromResponse("Gofile: failed to read account data", accountResp, accountBody);
@@ -303,7 +312,7 @@ async function uploadToGofile(file, options = {}) {
   }
 
   if (folderId) {
-    await ensureGofileFolderPublic(token, folderId);
+    await ensureGofileFolderPublic(token, folderId, signal);
   }
 
   const form = new FormData();
@@ -317,7 +326,8 @@ async function uploadToGofile(file, options = {}) {
   });
 
   const uploadResp = await http.post("https://upload.gofile.io/uploadfile", form, {
-    headers: form.getHeaders()
+    headers: form.getHeaders(),
+    ...mergeSignal({}, signal)
   });
   const uploadBody = parseJsonLoose(uploadResp.data);
   if (uploadResp.status >= 200 && uploadResp.status < 300 && uploadBody?.status === "ok") {
@@ -331,10 +341,11 @@ async function uploadToGofile(file, options = {}) {
 }
 
 async function uploadTo1fichier(file, options = {}) {
+  const signal = options.signal || null;
   const serverResp = await http.post(
     "https://api.1fichier.com/v1/upload/get_upload_server.cgi",
     {},
-    { headers: { "Content-Type": "application/json" } }
+    mergeSignal({ headers: { "Content-Type": "application/json" } }, signal)
   );
   const serverBody = parseJsonLoose(serverResp.data);
   if (serverResp.status < 200 || serverResp.status >= 300 || !serverBody?.url || !serverBody?.id) {
@@ -377,7 +388,8 @@ async function uploadTo1fichier(file, options = {}) {
 
   const uploadResp = await http.post(`https://${uploadHost}/upload.cgi?id=${encodeURIComponent(uploadId)}`, form, {
     headers,
-    maxRedirects: 0
+    maxRedirects: 0,
+    ...mergeSignal({}, signal)
   });
 
   if (uploadResp.status !== 302 && uploadResp.status !== 200) {
@@ -386,7 +398,8 @@ async function uploadTo1fichier(file, options = {}) {
 
   const reportResp = await http.get(`https://${uploadHost}/end.pl`, {
     params: { xid: uploadId },
-    headers: { JSON: "1" }
+    headers: { JSON: "1" },
+    ...mergeSignal({}, signal)
   });
   const reportBody = parseJsonLoose(reportResp.data);
   const firstLink = reportBody?.links?.[0]?.download || null;
@@ -402,6 +415,7 @@ async function uploadTo1fichier(file, options = {}) {
 }
 
 async function uploadToRootzRegular(file, options = {}) {
+  const signal = options.signal || null;
   const form = new FormData();
   form.append("file", fs.createReadStream(file.path), {
     filename: file.originalname,
@@ -412,7 +426,8 @@ async function uploadToRootzRegular(file, options = {}) {
   }
 
   const response = await http.post("https://rootz.so/api/files/upload", form, {
-    headers: form.getHeaders()
+    headers: form.getHeaders(),
+    ...mergeSignal({}, signal)
   });
   const body = parseJsonLoose(response.data);
 
@@ -444,12 +459,13 @@ async function readChunk(fileHandle, start, length) {
 }
 
 async function uploadToRootzMultipart(file, options = {}) {
+  const signal = options.signal || null;
   const initResp = await http.post("https://rootz.so/api/files/multipart/init", {
     fileName: file.originalname,
     fileSize: file.size,
     fileType: file.mimetype || "application/octet-stream",
     folderId: options.folderId || null
-  });
+  }, mergeSignal({}, signal));
   const initBody = parseJsonLoose(initResp.data);
   if (initResp.status < 200 || initResp.status >= 300 || !initBody?.success) {
     throw makeErrorFromResponse("Rootz: multipart init failed", initResp, initBody);
@@ -469,7 +485,7 @@ async function uploadToRootzMultipart(file, options = {}) {
     uploadId,
     totalParts,
     expiresIn: 7200
-  });
+  }, mergeSignal({}, signal));
   const urlsBody = parseJsonLoose(urlsResp.data);
   if (urlsResp.status < 200 || urlsResp.status >= 300 || !urlsBody?.success) {
     throw makeErrorFromResponse("Rootz: unable to get chunk URLs", urlsResp, urlsBody);
@@ -488,7 +504,7 @@ async function uploadToRootzMultipart(file, options = {}) {
           uploadId,
           partNumber,
           expiresIn: 7200
-        });
+        }, mergeSignal({}, signal));
         const singleBody = parseJsonLoose(singleResp.data);
         if (singleResp.status < 200 || singleResp.status >= 300 || !singleBody?.success || !singleBody?.url) {
           throw makeErrorFromResponse(
@@ -509,7 +525,8 @@ async function uploadToRootzMultipart(file, options = {}) {
           "Content-Type": "application/octet-stream",
           "Content-Length": String(chunk.length)
         },
-        timeout: Math.max(HTTP_TIMEOUT_MS, 300_000)
+        timeout: Math.max(HTTP_TIMEOUT_MS, 300_000),
+        ...mergeSignal({}, signal)
       });
       if (putResp.status < 200 || putResp.status >= 300) {
         throw makeErrorFromResponse(`Rootz: chunk ${partNumber} upload failed`, putResp);
@@ -536,7 +553,7 @@ async function uploadToRootzMultipart(file, options = {}) {
     fileSize: file.size,
     contentType: file.mimetype || "application/octet-stream",
     folderId: options.folderId || null
-  });
+  }, mergeSignal({}, signal));
   const completeBody = parseJsonLoose(completeResp.data);
   if (completeResp.status < 200 || completeResp.status >= 300 || !completeBody?.success) {
     throw makeErrorFromResponse("Rootz: multipart completion failed", completeResp, completeBody);
@@ -598,7 +615,8 @@ function parseSendNowPayload(raw) {
 }
 
 async function uploadToSendNow(file, options = {}) {
-  const uploadPageResp = await http.get("https://send.now/upload");
+  const signal = options.signal || null;
+  const uploadPageResp = await http.get("https://send.now/upload", mergeSignal({}, signal));
   if (uploadPageResp.status < 200 || uploadPageResp.status >= 300) {
     throw makeErrorFromResponse("Send.now: unable to load upload page", uploadPageResp);
   }
@@ -640,7 +658,8 @@ async function uploadToSendNow(file, options = {}) {
   });
 
   const uploadResp = await http.post(actionUrl, form, {
-    headers: form.getHeaders()
+    headers: form.getHeaders(),
+    ...mergeSignal({}, signal)
   });
   const payload = parseSendNowPayload(uploadResp.data);
 
@@ -659,7 +678,8 @@ async function uploadToSendNow(file, options = {}) {
   throw makeErrorFromResponse("Send.now: unexpected upload response", uploadResp, payload);
 }
 
-async function uploadToFileditch(file) {
+async function uploadToFileditch(file, options = {}) {
+  const signal = options.signal || null;
   const uploadWithName = async (filename, withExplicitMime = false) => {
     const form = new FormData();
     const fileOptions = { filename };
@@ -669,7 +689,8 @@ async function uploadToFileditch(file) {
     form.append("files[]", fs.createReadStream(file.path), fileOptions);
 
     const response = await http.post("https://up1.fileditch.com/upload.php", form, {
-      headers: form.getHeaders()
+      headers: form.getHeaders(),
+      ...mergeSignal({}, signal)
     });
     const body = parseJsonLoose(response.data);
     return { response, body };
@@ -724,6 +745,7 @@ async function uploadToFileditch(file) {
 }
 
 async function uploadToBuzzheavier(file, options = {}) {
+  const signal = options.signal || null;
   const locationId = options.locationId || "3eb9t1559lkv";
   const customTimeout = Number(options.timeoutMs);
   const timeoutMs = Number.isFinite(customTimeout) && customTimeout > 0 ? customTimeout : 0;
@@ -741,7 +763,8 @@ async function uploadToBuzzheavier(file, options = {}) {
         "Content-Type": file.mimetype || "application/octet-stream",
         "Content-Length": String(file.size)
       },
-      timeout: timeoutMs
+      timeout: timeoutMs,
+      ...mergeSignal({}, signal)
     }
   );
   const body = parseJsonLoose(response.data);
@@ -757,12 +780,14 @@ async function uploadToBuzzheavier(file, options = {}) {
   throw makeErrorFromResponse("Buzzheavier: upload failed", response, body);
 }
 
-async function uploadToRanoz(file) {
+async function uploadToRanoz(file, options = {}) {
+  const signal = options.signal || null;
   const metaResp = await http.post("https://ranoz.gg/api/v1/files/upload_url", {
     filename: file.originalname,
     size: file.size
   }, {
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
+    ...mergeSignal({}, signal)
   });
   const metaBody = parseJsonLoose(metaResp.data);
   const uploadUrl = metaBody?.data?.upload_url;
@@ -776,7 +801,8 @@ async function uploadToRanoz(file) {
     headers: {
       "Content-Type": file.mimetype || "application/octet-stream",
       "Content-Length": String(file.size)
-    }
+    },
+    ...mergeSignal({}, signal)
   });
 
   if (putResp.status >= 200 && putResp.status < 300) {
@@ -790,7 +816,8 @@ async function uploadToRanoz(file) {
 }
 
 async function uploadToVikingfile(file, options = {}) {
-  const serverResp = await http.get("https://vikingfile.com/api/get-server");
+  const signal = options.signal || null;
+  const serverResp = await http.get("https://vikingfile.com/api/get-server", mergeSignal({}, signal));
   const serverBody = parseJsonLoose(serverResp.data);
   const server = String(serverBody?.server || "").trim();
 
@@ -813,7 +840,8 @@ async function uploadToVikingfile(file, options = {}) {
 
   const uploadResp = await http.post(server, form, {
     headers: form.getHeaders(),
-    timeout: Math.max(HTTP_TIMEOUT_MS, 300_000)
+    timeout: Math.max(HTTP_TIMEOUT_MS, 300_000),
+    ...mergeSignal({}, signal)
   });
   const uploadBody = parseJsonLoose(uploadResp.data);
   const url = uploadBody?.url || null;
@@ -829,11 +857,13 @@ async function uploadToVikingfile(file, options = {}) {
 }
 
 async function uploadToFilemirage(file, options = {}) {
+  const signal = options.signal || null;
   const apiToken = String(options.apiToken || "").trim();
   const baseHeaders = apiToken ? { Authorization: `Bearer ${apiToken}` } : {};
 
   const serverResp = await http.get("https://filemirage.com/api/servers", {
-    headers: baseHeaders
+    headers: baseHeaders,
+    ...mergeSignal({}, signal)
   });
   const serverBody = parseJsonLoose(serverResp.data);
   const server = String(serverBody?.data?.server || "").trim().replace(/\/+$/, "");
@@ -866,7 +896,8 @@ async function uploadToFilemirage(file, options = {}) {
 
   const uploadResp = await http.post(`${server}/upload.php`, form, {
     headers: uploadHeaders,
-    timeout: Math.max(HTTP_TIMEOUT_MS, 300_000)
+    timeout: Math.max(HTTP_TIMEOUT_MS, 300_000),
+    ...mergeSignal({}, signal)
   });
   const uploadBody = parseJsonLoose(uploadResp.data);
   const url = uploadBody?.data?.url || uploadBody?.url || null;
@@ -887,6 +918,7 @@ async function uploadToFilemirage(file, options = {}) {
 }
 
 async function uploadToPixeldrain(file, options = {}) {
+  const signal = options.signal || null;
   const apiKey = String(options.apiKey || "").trim();
   if (!apiKey) {
     throw new UploadError(
@@ -909,7 +941,8 @@ async function uploadToPixeldrain(file, options = {}) {
           "Content-Type": file.mimetype || "application/octet-stream",
           "Content-Length": String(file.size)
         },
-        timeout: Math.max(HTTP_TIMEOUT_MS, 600_000)
+        timeout: Math.max(HTTP_TIMEOUT_MS, 600_000),
+        ...mergeSignal({}, signal)
       }
     );
     const body = parseJsonLoose(response.data);
@@ -929,7 +962,8 @@ async function uploadToPixeldrain(file, options = {}) {
     const response = await http.post("https://pixeldrain.com/api/file", form, {
       auth,
       headers: form.getHeaders(),
-      timeout: Math.max(HTTP_TIMEOUT_MS, 600_000)
+      timeout: Math.max(HTTP_TIMEOUT_MS, 600_000),
+      ...mergeSignal({}, signal)
     });
     const body = parseJsonLoose(response.data);
     const id = body?.id || null;

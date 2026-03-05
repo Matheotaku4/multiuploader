@@ -17,11 +17,12 @@
     <main class="shell">
       <section class="hero">
         <p class="kicker">Upload multiple services</p>
-        <h1>Upify</h1>
+        <img class="brand-logo" src="/logo.png" alt="Upify" />
         <p class="subtitle">
           Upload one file to Gofile, 1fichier, Rootz, Send.now, Buzzheavier,
           Ranoz, Vikingfile, FileMirage, and Pixeldrain in one click.
         </p>
+        <p id="upload-stats" class="upload-stats">You have uploaded 0.00 Go</p>
       </section>
 
       <section class="panel">
@@ -48,7 +49,13 @@
 
           <div class="advanced-title-row">
             <span>Advanced options (optional)</span>
-            <a id="api-help-link" class="api-help-btn" href="/API.md" target="_blank" rel="noopener noreferrer">
+            <a
+              id="api-help-link"
+              class="api-help-btn"
+              href="https://github.com/Matheotaku4/Upify/blob/main/API.md"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               API help
             </a>
           </div>
@@ -99,7 +106,10 @@
             </div>
           </details>
 
-          <button id="submit-btn" type="submit">Start multi-upload</button>
+          <div class="upload-actions">
+            <button id="submit-btn" type="submit">Start multi-upload</button>
+            <button id="cancel-all-btn" type="button" disabled>Cancel all</button>
+          </div>
 
           <div id="host-progress" class="host-progress" aria-live="polite"></div>
         </form>
@@ -123,10 +133,12 @@
       const form = document.getElementById("upload-form");
       const fileInput = document.getElementById("file-input");
       const submitBtn = document.getElementById("submit-btn");
+      const cancelAllBtn = document.getElementById("cancel-all-btn");
       const copyAllBtn = document.getElementById("copy-all-btn");
       const statusLine = document.getElementById("status-line");
       const resultsList = document.getElementById("results-list");
       const hostProgress = document.getElementById("host-progress");
+      const uploadStatsLine = document.getElementById("upload-stats");
       const advancedDetails = document.querySelector("details.advanced");
       const targetInputs = [...document.querySelectorAll(".targets input[type='checkbox']")];
       const preferenceInputIds = [
@@ -145,6 +157,8 @@
       let preferencesReady = false;
       let preferenceSaveTimer = null;
       let notificationPermissionAsked = false;
+      let totalUploadedBytes = 0;
+      let currentUpload = null;
 
       function selectedTargets() {
         return targetInputs.filter((el) => el.checked).map((el) => el.value);
@@ -248,6 +262,30 @@
         }
       }
 
+      function formatBytesToGo(bytes) {
+        const value = Number(bytes) || 0;
+        return (value / (1024 ** 3)).toFixed(2);
+      }
+
+      function renderUploadStats() {
+        uploadStatsLine.textContent = `You have uploaded ${formatBytesToGo(totalUploadedBytes)} Go`;
+      }
+
+      async function refreshUploadStats() {
+        try {
+          const response = await fetch("/api/stats", { method: "GET", cache: "no-store" });
+          if (!response.ok) {
+            return;
+          }
+          const payload = await response.json();
+          const stats = payload?.stats || {};
+          totalUploadedBytes = Number(stats.totalUploadedBytes || 0);
+          renderUploadStats();
+        } catch (_err) {
+          // Keep current visible value on fetch failure.
+        }
+      }
+
       async function requestNotificationPermission() {
         if (!("Notification" in window)) {
           return;
@@ -343,6 +381,7 @@
         if (state.status === "running") return "UPLOADING";
         if (state.status === "ok") return "DONE";
         if (state.status === "ko") return "ERROR";
+        if (state.status === "canceled") return "CANCELED";
         return "WAITING";
       }
 
@@ -350,6 +389,7 @@
         if (state.status === "running") return "running";
         if (state.status === "ok") return "ok";
         if (state.status === "ko") return "ko";
+        if (state.status === "canceled") return "canceled";
         return "pending";
       }
 
@@ -371,11 +411,20 @@
             const safeProgress = Math.max(0, Math.min(100, Math.round(state.progress || 0)));
             const rowClass = statusClassFor(state);
             const statusText = state.message || statusTextFor(state);
+            const canCancel =
+              currentUpload &&
+              (state.status === "running" || state.status === "pending");
+            const cancelButton = canCancel
+              ? `<button class="host-cancel-btn" type="button" data-target="${target}">Cancel</button>`
+              : "";
             return `
               <article class="host-progress-item ${rowClass}">
                 <div class="host-progress-head">
                   <strong>${target}</strong>
-                  <span>${statusText}</span>
+                  <div class="host-progress-actions">
+                    <span>${statusText}</span>
+                    ${cancelButton}
+                  </div>
                 </div>
                 <div class="host-progress-track">
                   <div class="host-progress-fill" style="width:${safeProgress}%"></div>
@@ -429,7 +478,7 @@
 
       function finalizeProgressAfterFailure() {
         for (const [target, state] of progressState.entries()) {
-          if (state.status === "ok" || state.status === "ko") {
+          if (state.status === "ok" || state.status === "ko" || state.status === "canceled") {
             continue;
           }
           progressState.set(target, {
@@ -440,6 +489,39 @@
           });
         }
         renderProgress();
+      }
+
+      function buildJobId() {
+        if (window.crypto && typeof window.crypto.randomUUID === "function") {
+          return window.crypto.randomUUID();
+        }
+        return `upify-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      async function cancelUpload(target = null) {
+        if (!currentUpload?.jobId) {
+          return;
+        }
+        try {
+          await fetch("/api/upload/cancel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jobId: currentUpload.jobId,
+              target
+            })
+          });
+        } catch (_err) {
+          // Ignore network errors during cancellation.
+        }
+      }
+
+      function markTargetAsCanceled(target) {
+        setProgressState(target, {
+          status: "canceled",
+          progress: 100,
+          message: "CANCELED"
+        });
       }
 
       async function uploadWithStream(body, onEvent) {
@@ -552,6 +634,7 @@
       });
 
       initializePreferences();
+      refreshUploadStats();
       for (const input of targetInputs) {
         input.addEventListener("change", persistPreferences);
       }
@@ -566,6 +649,33 @@
       if (advancedDetails) {
         advancedDetails.addEventListener("toggle", persistPreferences);
       }
+
+      hostProgress.addEventListener("click", (event) => {
+        const button = event.target.closest(".host-cancel-btn");
+        if (!button) {
+          return;
+        }
+        const target = button.getAttribute("data-target");
+        if (!target) {
+          return;
+        }
+        markTargetAsCanceled(target);
+        cancelUpload(target);
+      });
+
+      cancelAllBtn.addEventListener("click", () => {
+        if (!currentUpload?.jobId) {
+          return;
+        }
+        for (const [target, state] of progressState.entries()) {
+          if (state.status === "ok" || state.status === "ko" || state.status === "canceled") {
+            continue;
+          }
+          markTargetAsCanceled(target);
+        }
+        cancelUpload(null);
+        statusLine.textContent = "Cancelling upload...";
+      });
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -584,13 +694,17 @@
 
         const options = buildOptions();
         const body = new FormData();
+        const jobId = buildJobId();
         body.append("file", file);
         body.append("targets", JSON.stringify(targets));
         body.append("options", JSON.stringify(options));
+        body.append("jobId", jobId);
         initProgress(targets);
         await requestNotificationPermission();
+        currentUpload = { jobId };
 
         submitBtn.disabled = true;
+        cancelAllBtn.disabled = false;
         submitBtn.textContent = "Uploading...";
         statusLine.textContent = `Uploading ${file.name} to ${targets.length} target(s)...`;
         resultsList.innerHTML = '<p class="empty">Processing...</p>';
@@ -612,6 +726,15 @@
             if (eventPayload.type === "target_result") {
               const result = eventPayload.result || {};
               aggregatedResults[eventPayload.requestedTarget] = result;
+              if (result.canceled) {
+                setProgressState(eventPayload.requestedTarget, {
+                  status: "canceled",
+                  progress: 100,
+                  message: "CANCELED"
+                });
+                renderResults({ results: aggregatedResults });
+                return;
+              }
               setProgressState(eventPayload.requestedTarget, {
                 status: result.ok ? "ok" : "ko",
                 progress: 100,
@@ -623,12 +746,20 @@
 
             if (eventPayload.type === "done") {
               finalResults = eventPayload.results || aggregatedResults;
+              if (eventPayload.stats && Number.isFinite(Number(eventPayload.stats.totalUploadedBytes))) {
+                totalUploadedBytes = Number(eventPayload.stats.totalUploadedBytes);
+                renderUploadStats();
+              }
               renderResults({ results: finalResults });
             }
           });
 
           stopProgressTicker();
           statusLine.textContent = "Done.";
+          if (!finalResults) {
+            finalResults = aggregatedResults;
+          }
+          await refreshUploadStats();
           notifyUploadFinished(
             file.name,
             summarizeUploadResults(finalResults || aggregatedResults, targets.length)
@@ -643,8 +774,10 @@
             { total: targets.length, okCount: 0, koCount: targets.length }
           );
         } finally {
+          currentUpload = null;
           stopProgressTicker();
           submitBtn.disabled = false;
+          cancelAllBtn.disabled = true;
           submitBtn.textContent = "Start multi-upload";
         }
       });

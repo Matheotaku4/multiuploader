@@ -1,6 +1,7 @@
 const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
+const { randomUUID } = require("crypto");
 const express = require("express");
 const multer = require("multer");
 const {
@@ -16,6 +17,8 @@ const PROJECT_ROOT = path.join(__dirname, "..");
 const TMP_DIR = path.join(os.tmpdir(), "upify-tmp");
 const PUBLIC_DIR = path.join(PROJECT_ROOT, "public");
 const API_DOC_FILE = path.join(PROJECT_ROOT, "API.md");
+const LOGO_FILE = path.join(PROJECT_ROOT, "logo.png");
+const activeUploadJobs = new Map();
 
 async function ensureTmpDir() {
   await fs.mkdir(TMP_DIR, { recursive: true });
@@ -50,6 +53,13 @@ function sanitizePreferencePayload(value) {
   };
 }
 
+function sanitizeStatsPayload(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const raw = Number(source.totalUploadedBytes);
+  const totalUploadedBytes = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  return { totalUploadedBytes };
+}
+
 async function readPreferencesFromDisk(preferencesDir) {
   const preferencesFile = path.join(preferencesDir, "preferences.json");
 
@@ -71,6 +81,38 @@ async function writePreferencesToDisk(preferencesDir, payload) {
   await fs.mkdir(preferencesDir, { recursive: true });
   await fs.writeFile(preferencesFile, JSON.stringify(sanitized, null, 2), "utf8");
   return sanitized;
+}
+
+async function readStatsFromDisk(preferencesDir) {
+  const statsFile = path.join(preferencesDir, "stats.json");
+  try {
+    const raw = await fs.readFile(statsFile, "utf8");
+    return sanitizeStatsPayload(JSON.parse(raw));
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return { totalUploadedBytes: 0 };
+    }
+    return { totalUploadedBytes: 0 };
+  }
+}
+
+async function writeStatsToDisk(preferencesDir, payload) {
+  const statsFile = path.join(preferencesDir, "stats.json");
+  const stats = sanitizeStatsPayload(payload);
+  await fs.mkdir(preferencesDir, { recursive: true });
+  await fs.writeFile(statsFile, JSON.stringify(stats, null, 2), "utf8");
+  return stats;
+}
+
+async function addUploadedBytes(preferencesDir, uploadedBytes) {
+  const increment = Number(uploadedBytes);
+  if (!Number.isFinite(increment) || increment <= 0) {
+    return readStatsFromDisk(preferencesDir);
+  }
+  const current = await readStatsFromDisk(preferencesDir);
+  return writeStatsToDisk(preferencesDir, {
+    totalUploadedBytes: current.totalUploadedBytes + increment
+  });
 }
 
 function parseJsonField(value, fallback = {}) {
@@ -126,6 +168,20 @@ function buildTargetResultFromError(normalized, error) {
   };
 }
 
+function buildCanceledResult(normalized) {
+  return {
+    ok: false,
+    canceled: true,
+    target: normalized,
+    error: "Canceled",
+    details: null
+  };
+}
+
+function countSuccessfulTargets(results) {
+  return Object.values(results || {}).filter((entry) => entry && entry.ok).length;
+}
+
 function writeNdjsonLine(res, payload) {
   if (res.writableEnded || res.destroyed) {
     return;
@@ -158,8 +214,17 @@ function createApp(options = {}) {
     res.sendFile(API_DOC_FILE);
   });
 
+  app.get("/logo.png", (_req, res) => {
+    res.sendFile(LOGO_FILE);
+  });
+
   app.get("/api/targets", (_req, res) => {
     res.json({ targets: supportedTargets });
+  });
+
+  app.get("/api/stats", async (_req, res) => {
+    const stats = await readStatsFromDisk(preferencesDir);
+    res.json({ stats });
   });
 
   app.get("/api/preferences", async (_req, res) => {
@@ -170,6 +235,39 @@ function createApp(options = {}) {
   app.post("/api/preferences", async (req, res) => {
     const preferences = await writePreferencesToDisk(preferencesDir, req.body);
     res.json({ ok: true, preferences });
+  });
+
+  app.post("/api/upload/cancel", (req, res) => {
+    const jobId = String(req.body?.jobId || "").trim();
+    if (!jobId) {
+      res.status(400).json({ error: "jobId is required." });
+      return;
+    }
+
+    const job = activeUploadJobs.get(jobId);
+    if (!job) {
+      res.status(404).json({ error: "Upload job not found or already completed." });
+      return;
+    }
+
+    const targetRaw = req.body?.target;
+    if (targetRaw == null || String(targetRaw).trim() === "") {
+      job.canceledAll = true;
+      for (const controller of job.controllers.values()) {
+        controller.abort();
+      }
+      res.json({ ok: true, jobId, canceledAll: true });
+      return;
+    }
+
+    const targetNormalized = normalizeTarget(String(targetRaw).trim()) || String(targetRaw).trim().toLowerCase();
+    job.canceledTargets.add(targetNormalized);
+    const controller = job.controllers.get(targetNormalized);
+    if (controller) {
+      controller.abort();
+    }
+
+    res.json({ ok: true, jobId, target: targetNormalized });
   });
 
   app.post("/api/upload", upload.single("file"), async (req, res) => {
@@ -221,13 +319,17 @@ function createApp(options = {}) {
         })
       );
 
+      const successfulCount = countSuccessfulTargets(results);
+      const stats = await addUploadedBytes(preferencesDir, file.size * successfulCount);
+
       res.status(200).json({
         file: {
           originalname: file.originalname,
           mimetype: file.mimetype,
           size: file.size
         },
-        results
+        results,
+        stats
       });
     } finally {
       await fs.unlink(file.path).catch(() => {});
@@ -259,6 +361,22 @@ function createApp(options = {}) {
 
     const optionsByTarget = parseJsonField(req.body.options, {});
     const results = {};
+    const requestedJobId = String(req.body.jobId || "").trim();
+    const jobId = requestedJobId || randomUUID();
+    const jobState = {
+      id: jobId,
+      canceledAll: false,
+      canceledTargets: new Set(),
+      controllers: new Map()
+    };
+
+    activeUploadJobs.set(jobId, jobState);
+    const cleanupJob = () => {
+      const current = activeUploadJobs.get(jobId);
+      if (current === jobState) {
+        activeUploadJobs.delete(jobId);
+      }
+    };
 
     res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -275,6 +393,7 @@ function createApp(options = {}) {
         mimetype: file.mimetype,
         size: file.size
       },
+      jobId,
       targets: normalizedTargets.map((item) => ({
         requested: item.requested,
         normalized: item.normalized
@@ -284,16 +403,34 @@ function createApp(options = {}) {
     try {
       await Promise.all(
         normalizedTargets.map(async ({ requested, normalized }) => {
+          if (jobState.canceledAll || jobState.canceledTargets.has(normalized)) {
+            const targetResult = buildCanceledResult(normalized);
+            results[requested] = targetResult;
+            writeNdjsonLine(res, {
+              type: "target_result",
+              requestedTarget: requested,
+              result: targetResult
+            });
+            return;
+          }
+
           writeNdjsonLine(res, {
             type: "target_start",
             requestedTarget: requested,
             normalizedTarget: normalized
           });
 
-          const options =
+          const controller = new AbortController();
+          jobState.controllers.set(normalized, controller);
+
+          const options = {
+            ...(
             optionsByTarget[requested] ||
             optionsByTarget[normalized] ||
-            {};
+            {}
+            ),
+            signal: controller.signal
+          };
 
           try {
             const uploadResult = await uploadToTarget(normalized, file, options);
@@ -310,28 +447,45 @@ function createApp(options = {}) {
               result: targetResult
             });
           } catch (error) {
-            const targetResult = buildTargetResultFromError(normalized, error);
+            const canceled =
+              controller.signal.aborted ||
+              jobState.canceledAll ||
+              jobState.canceledTargets.has(normalized) ||
+              error?.code === "ERR_CANCELED";
+            const targetResult = canceled
+              ? buildCanceledResult(normalized)
+              : buildTargetResultFromError(normalized, error);
             results[requested] = targetResult;
             writeNdjsonLine(res, {
               type: "target_result",
               requestedTarget: requested,
               result: targetResult
             });
+          } finally {
+            if (jobState.controllers.get(normalized) === controller) {
+              jobState.controllers.delete(normalized);
+            }
           }
         })
       );
 
+      const successfulCount = countSuccessfulTargets(results);
+      const stats = await addUploadedBytes(preferencesDir, file.size * successfulCount);
+
       writeNdjsonLine(res, {
         type: "done",
+        jobId,
         file: {
           originalname: file.originalname,
           mimetype: file.mimetype,
           size: file.size
         },
-        results
+        results,
+        stats
       });
       res.end();
     } finally {
+      cleanupJob();
       await fs.unlink(file.path).catch(() => {});
     }
   });

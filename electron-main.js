@@ -1,9 +1,38 @@
 const { app, BrowserWindow, dialog, shell } = require("electron");
+const { execFile } = require("child_process");
 const { startServer, stopServer } = require("./src/server");
 
 let mainWindow = null;
 let serverHandle = null;
 let isQuitting = false;
+
+function runRegAdd(args) {
+  return new Promise((resolve) => {
+    execFile("reg.exe", args, { windowsHide: true }, () => resolve());
+  });
+}
+
+async function ensureWindowsContextMenuEntry() {
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  const exePath = process.execPath;
+  const menuLabel = "Envoyer a Upify";
+  const fileMenuKey = "HKCU\\Software\\Classes\\*\\shell\\SendToUpify";
+  const fileCommandKey = `${fileMenuKey}\\command`;
+  const directoryMenuKey = "HKCU\\Software\\Classes\\Directory\\shell\\SendToUpify";
+  const directoryCommandKey = `${directoryMenuKey}\\command`;
+  const commandValue = `\"${exePath}\" \"%1\"`;
+  const iconValue = `\"${exePath}\",0`;
+
+  await runRegAdd(["add", fileMenuKey, "/ve", "/d", menuLabel, "/f"]);
+  await runRegAdd(["add", fileMenuKey, "/v", "Icon", "/d", iconValue, "/f"]);
+  await runRegAdd(["add", fileCommandKey, "/ve", "/d", commandValue, "/f"]);
+  await runRegAdd(["add", directoryMenuKey, "/ve", "/d", menuLabel, "/f"]);
+  await runRegAdd(["add", directoryMenuKey, "/v", "Icon", "/d", iconValue, "/f"]);
+  await runRegAdd(["add", directoryCommandKey, "/ve", "/d", commandValue, "/f"]);
+}
 
 async function createMainWindow() {
   serverHandle = await startServer({
@@ -74,6 +103,7 @@ async function shutdownServer() {
 
 app.whenReady().then(async () => {
   try {
+    await ensureWindowsContextMenuEntry();
     await createMainWindow();
   } catch (error) {
     const message = error?.message || String(error);
