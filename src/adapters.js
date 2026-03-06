@@ -30,7 +30,8 @@ const supportedTargets = [
   "vikingfile",
   "filemirage",
   "pixeldrain",
-  "bowfile"
+  "bowfile",
+  "akirabox"
 ];
 
 const targetAliases = {
@@ -55,7 +56,9 @@ const targetAliases = {
   "pixeldrain.com": "pixeldrain",
   bowfile: "bowfile",
   "bowfile.com": "bowfile",
-  "www.bowfile.com": "bowfile"
+  "www.bowfile.com": "bowfile",
+  akirabox: "akirabox",
+  "akirabox.com": "akirabox"
 };
 
 class UploadError extends Error {
@@ -1055,6 +1058,41 @@ async function uploadToBowFile(file, options = {}) {
   throw makeErrorFromResponse("BowFile: upload failed", uploadResp, uploadBody);
 }
 
+async function uploadToAkiraBox(file, options = {}) {
+  const signal = options.signal || null;
+  const apiKey = String(options.apiKey || "").trim();
+
+  if (!apiKey) {
+    throw new UploadError("AkiraBox: API key is required");
+  }
+
+  const form = new FormData();
+  form.append("file", fs.createReadStream(file.path), {
+    filename: file.originalname,
+    contentType: file.mimetype || "application/octet-stream"
+  });
+
+  const uploadResp = await http.post("https://akirabox.com/api/files/upload", form, {
+    headers: {
+      ...form.getHeaders(),
+      Authorization: `Bearer ${apiKey}`
+    },
+    timeout: Math.max(HTTP_TIMEOUT_MS, 600_000),
+    ...mergeSignal({}, signal)
+  });
+  const uploadBody = parseJsonLoose(uploadResp.data);
+  const fileCode = uploadBody?.file_code || uploadBody?.data?.file_code || null;
+
+  if (uploadResp.status >= 200 && uploadResp.status < 300 && fileCode) {
+    return {
+      url: `https://akirabox.com/${fileCode}/file`,
+      raw: uploadBody
+    };
+  }
+
+  throw makeErrorFromResponse("AkiraBox: upload failed", uploadResp, uploadBody);
+}
+
 async function uploadToTarget(target, file, options = {}) {
   const normalized = normalizeTarget(target);
   if (!normalized) {
@@ -1082,6 +1120,8 @@ async function uploadToTarget(target, file, options = {}) {
       return uploadToPixeldrain(file, options);
     case "bowfile":
       return uploadToBowFile(file, options);
+    case "akirabox":
+      return uploadToAkiraBox(file, options);
     default:
       throw new UploadError(`Unknown target: ${target}`);
   }

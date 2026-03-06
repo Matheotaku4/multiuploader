@@ -40,6 +40,7 @@
               <label><input type="checkbox" value="filemirage" checked /> filemirage.com</label>
               <label><input type="checkbox" value="pixeldrain" checked /> pixeldrain.com</label>
               <label><input type="checkbox" value="bowfile" checked /> BowFile</label>
+              <label><input type="checkbox" value="akirabox" checked /> akirabox.com</label>
             </div>
           </div>
 
@@ -114,6 +115,11 @@
                 <span>BowFile folder ID (optional)</span>
                 <input id="opt-bowfile-folder" type="text" placeholder="Folder ID" />
               </label>
+
+              <label class="field">
+                <span>AkiraBox API key (required)</span>
+                <input id="opt-akirabox-apikey" type="text" placeholder="API key" />
+              </label>
             </div>
           </details>
 
@@ -165,7 +171,8 @@
         "opt-pixeldrain-key",
         "opt-bowfile-key1",
         "opt-bowfile-key2",
-        "opt-bowfile-folder"
+        "opt-bowfile-folder",
+        "opt-akirabox-apikey"
       ];
       let lastLinks = [];
       const progressState = new Map();
@@ -355,7 +362,8 @@
           vikingfile: {},
           filemirage: {},
           pixeldrain: {},
-          bowfile: {}
+          bowfile: {},
+          akirabox: {}
         };
 
         const gofileToken = document.getElementById("opt-gofile-token").value.trim();
@@ -369,6 +377,7 @@
         const bowfileKey1 = document.getElementById("opt-bowfile-key1").value.trim();
         const bowfileKey2 = document.getElementById("opt-bowfile-key2").value.trim();
         const bowfileFolder = document.getElementById("opt-bowfile-folder").value.trim();
+        const akiraboxApiKey = document.getElementById("opt-akirabox-apikey").value.trim();
 
         if (gofileToken) {
           options.gofile.token = gofileToken;
@@ -402,6 +411,9 @@
         }
         if (bowfileFolder) {
           options.bowfile.folderId = bowfileFolder;
+        }
+        if (akiraboxApiKey) {
+          options.akirabox.apiKey = akiraboxApiKey;
         }
 
         return options;
