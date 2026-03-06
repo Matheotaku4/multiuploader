@@ -6,8 +6,8 @@
 [![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)](#)
 [![Stars](https://img.shields.io/github/stars/Matheotaku4/Upify?color=gold)](https://github.com/Matheotaku4/Upify/stargazers)
 
-![Screenshot](https://files.catbox.moe/8eslbp.png)
-
+![Screenshot](https://files.catbox.moe/6qs9ln.png)
+https://files.catbox.moe/8eslbp.png
 Local desktop/web uploader for sending one file to multiple hosts in parallel:
 
 - `gofile.io`
